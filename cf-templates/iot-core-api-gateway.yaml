@@ -1,0 +1,249 @@
+AWSTemplateFormatVersion: 2010-09-09
+Parameters:
+  Stack:
+    Description: Stack name
+    Type: String
+    Default: iot-blog
+  App:
+    Description: Application name
+    Type: String
+    Default: SmartHotelBackend
+  DeployBucket:
+    Description: Bucket to copy files to
+    Type: String
+    Default: iot-blog-code-s3bucket
+Resources:
+    apiGateway:
+        Type: "AWS::ApiGateway::RestApi"
+        Properties:
+          Name: "smart-hotel-api"
+          Description: "Smart Hotel API"
+    TempResource:
+        Type: 'AWS::ApiGateway::Resource'
+        Properties:
+          ParentId: !GetAtt apiGateway.RootResourceId
+          RestApiId: !Ref apiGateway
+          PathPart: 'set-temp'
+    TempMethod:
+        Type: "AWS::ApiGateway::Method"
+        Properties:
+          AuthorizationType: "NONE"
+          HttpMethod: "POST"
+          RequestParameters:
+            method.request.querystring.temp: true
+          Integration:
+            IntegrationHttpMethod: "POST"
+            Type: "AWS_PROXY"
+            Uri: !Sub
+              - "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${lambdaArn}/invocations"
+              - lambdaArn: !GetAtt "smartHotelSetTemp.Arn"
+            RequestParameters: 
+              integration.request.querystring.temp: method.request.querystring.temp
+          ResourceId: !Ref "TempResource"
+          RestApiId: !Ref "apiGateway"
+    ResetResource:
+        Type: 'AWS::ApiGateway::Resource'
+        Properties:
+          ParentId: !GetAtt apiGateway.RootResourceId
+          RestApiId: !Ref "apiGateway"
+          PathPart: 'set-room'
+    ResetMethod:
+        Type: "AWS::ApiGateway::Method"
+        Properties:
+          AuthorizerId: !Ref "Authorizer"
+          AuthorizationType: "CUSTOM"
+          HttpMethod: "POST"
+          RequestParameters:
+            method.request.querystring.room: true
+          Integration:
+            IntegrationHttpMethod: "POST"
+            Type: "AWS_PROXY"
+            Uri: !Sub
+              - "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${lambdaArn}/invocations"
+              - lambdaArn: !GetAtt "smartHotelResetRoom.Arn"
+            RequestParameters: 
+              integration.request.querystring.room: 'method.request.querystring.room'
+          ResourceId: !Ref "ResetResource"
+          RestApiId: !Ref "apiGateway"
+    Authorizer:
+      Type: 'AWS::ApiGateway::Authorizer'
+      Properties:
+        AuthorizerResultTtlInSeconds: '300'
+        AuthorizerUri: !Join 
+          - ''
+          - - 'arn:aws:apigateway:'
+            - !Ref 'AWS::Region'
+            - ':lambda:path/2015-03-31/functions/'
+            - !GetAtt 
+              - hotelAuth
+              - Arn
+            - /invocations
+        Type: TOKEN
+        IdentitySource: method.request.header.Authorization
+        Name: CustomAuth
+        RestApiId: !Ref apiGateway
+    apiGatewayDeployment:
+        Type: "AWS::ApiGateway::Deployment"
+        Properties:
+          RestApiId: !Ref "apiGateway"
+          StageName: "smart-hotel-api"
+        DependsOn:
+          - ResetMethod
+          - TempMethod
+    LambdaManagedPolicy:
+        Type: AWS::IAM::ManagedPolicy
+        Properties:
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              -
+                Sid: AllowAllUsersToListAccounts
+                Effect: Allow
+                Action:
+                  - logs:*
+                  - iot:*
+                Resource: "*"
+    LambdaExecutionRole:
+        Type: 'AWS::IAM::Role'
+        Properties:
+          AssumeRolePolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Principal:
+                  Service:
+                    - lambda.amazonaws.com
+                Action:
+                  - 'sts:AssumeRole'
+          Path: /
+          ManagedPolicyArns:
+            - !Ref LambdaManagedPolicy
+    hotelAuth:
+        Type: "AWS::Lambda::Function"
+        Properties:
+          Code:
+            ZipFile: !Sub |
+                import json
+                #Format return policy that API Gateway expects
+                def generatePolicy(principalId, effect, resource):
+                  return {
+                    'principalId': principalId,
+                    'policyDocument': {
+                      'Version': '2012-10-17',
+                      'Statement': [{
+                        'Action': 'execute-api:Invoke',
+                        'Effect': effect,
+                        'Resource': resource
+                      }]
+                    }
+                  };
+                def customLogicFunction(token):
+                    #Run your custom authorization here
+                    #i.e. Check your DynamoDB table for token associated with user
+                    #Return true or false
+                    return
+    
+                def lambda_handler(event, context):
+                    
+                    #if(customLogicFunction(event['authorizationToken']) == true)
+                        return generatePolicy('user', 'Allow', event['methodArn'])
+                    
+                    #else
+                      #return generatePolicy('user', 'Deny', event['methodArn'])
+          FunctionName: hotelAuth
+          Handler: index.lambda_handler
+          Role: !GetAtt LambdaExecutionRole.Arn
+          Runtime: python3.6
+          Timeout: 30
+    ApiGatewayInvokeLambdaPermission:
+        Type: "AWS::Lambda::Permission"
+        Properties: 
+          Action: lambda:InvokeFunction
+          FunctionName: !GetAtt "hotelAuth.Arn"
+          Principal: apigateway.amazonaws.com
+          SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${apiGateway}/*"
+    SmartHotelBackend:
+        Type: "AWS::Lambda::Function"
+        Properties:
+          Code:    
+            S3Bucket: !Ref DeployBucket
+            S3Key: !Sub ${App}.zip
+          FunctionName: SmartHotelBackend
+          Handler: index.handler
+          Role: !GetAtt LambdaExecutionRole.Arn
+          Runtime: nodejs10.x
+          Timeout: 30
+    smartHotelResetRoom:
+        Type: "AWS::Lambda::Function"
+        Properties:
+          Code:
+            ZipFile: !Sub |
+                import json
+                import boto3
+                import datetime
+                timestamp = datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%f')
+                client = boto3.client('iot-data')
+
+
+                def lambda_handler(event, context):
+                    roomId = event['multiValueQueryStringParameters']['room'][0]
+                    # TODO implement
+                    temp = 72
+                    response = client.publish(
+                        topic = 'resetRoom',
+                        qos = 1,
+                        payload = json.dumps({"roomid": roomId, "timestamp": timestamp, "shades": "up", "theater": "stopped", "thermostat": temp})
+                    )
+                    return {
+                        "statusCode": 200,
+                    }
+          FunctionName: smart-hotel-reset-room
+          Handler: index.lambda_handler
+          Role: !GetAtt LambdaExecutionRole.Arn
+          Runtime: python3.7
+          Timeout: 30
+    ApiGatewayInvokeLambdaPermission2:
+        Type: "AWS::Lambda::Permission"
+        Properties: 
+          Action: lambda:InvokeFunction
+          FunctionName: !GetAtt "smartHotelResetRoom.Arn"
+          Principal: apigateway.amazonaws.com
+          SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${apiGateway}/*" 
+    smartHotelSetTemp:
+        Type: "AWS::Lambda::Function"
+        Properties:
+          Code:
+            ZipFile: !Sub |
+                import json
+                import boto3
+                import datetime
+                timestamp = datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%f')
+                client = boto3.client('iot-data')
+
+
+                def lambda_handler(event, context):
+                    temp = event['multiValueQueryStringParameters']['temp'][0]
+                    print(event)
+                    roomId = 101
+
+                    response = client.publish(
+                        topic = 'setTemp',
+                        qos = 1,
+                        payload = json.dumps({"roomid": roomId,"timestamp": timestamp, "thermostat": temp })
+                    )
+                    return {
+                        "statusCode": 200,
+                    }  
+          FunctionName: smart-hotel-set-temp
+          Handler: index.lambda_handler
+          Role: !GetAtt LambdaExecutionRole.Arn
+          Runtime: python3.7
+          Timeout: 30
+    ApiGatewayInvokeLambdaPermission3:
+        Type: "AWS::Lambda::Permission"
+        Properties: 
+          Action: lambda:InvokeFunction
+          FunctionName: !GetAtt "smartHotelSetTemp.Arn"
+          Principal: apigateway.amazonaws.com
+          SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${apiGateway}/*"
+
