@@ -1,8 +1,8 @@
-## Build a connected space with Alexa and AWS IoT
+## Build a connected space with Amazon Alexa and AWS IoT
 
 Demonstrates building a smart hotel room with Alexa integration to control connected devices.
 
-This is the companion GitHub repository for the AWS blog post  https://aws.amazon.com/blogs/iot/?p=3527
+This is the companion GitHub repository for the AWS blog post https://aws.amazon.com/blogs/iot/implement-a-connected-building-with-alexa-and-aws-iot/
 
 This repo will contain all relevant code and CloudFormation templates needed to complete the AWS blog linked above.
 
