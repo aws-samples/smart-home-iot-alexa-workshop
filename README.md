@@ -1,11 +1,10 @@
-## My Project
+## Build a connected space with Alexa and AWS IoT
 
-TODO: Fill this README out!
+Demonstrates building a smart hotel room with Alexa integration to control connected devices.
 
-Be sure to:
+This is the companion GitHub repository for the AWS blog post  https://aws.amazon.com/blogs/iot/?p=3527
 
-* Change the title in this README
-* Edit your repository description on GitHub
+This repo will introduce you to the process of creating AWS Security Hub a custom action by sending findings to Slack. After reading this blog you will understand the process to create your own custom actions for utilization in your Security Operations play books.
 
 ## License
 
