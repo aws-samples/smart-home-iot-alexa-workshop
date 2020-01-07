@@ -4,7 +4,7 @@ Demonstrates building a smart hotel room with Alexa integration to control conne
 
 This is the companion GitHub repository for the AWS blog post  https://aws.amazon.com/blogs/iot/?p=3527
 
-This repo will introduce you to the process of creating AWS Security Hub a custom action by sending findings to Slack. After reading this blog you will understand the process to create your own custom actions for utilization in your Security Operations play books.
+This repo will contain all relevant code and CloudFormation templates needed to complete the step-by-step tutorial at the above AWS blog. 
 
 ## License
 
