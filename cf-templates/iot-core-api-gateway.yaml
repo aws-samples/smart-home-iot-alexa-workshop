@@ -171,7 +171,7 @@ Resources:
           FunctionName: SmartHotelBackend
           Handler: index.handler
           Role: !GetAtt LambdaExecutionRole.Arn
-          Runtime: nodejs10.x
+          Runtime: nodejs14.x
           Timeout: 30
     smartHotelResetRoom:
         Type: "AWS::Lambda::Function"
